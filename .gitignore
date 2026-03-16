@@ -1,0 +1,41 @@
+# Virtual environment
+venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files (created during development)
+*.tmp
+*.swp
+TODO.md
+
+# Model checkpoints
+model/*.pth
+
+# trash (temp files/folders created during development)
+
+# Datasets (exclude large data folders) ---
+data/
+Backup/
+
+
+
+
+
