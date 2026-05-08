@@ -1,52 +1,44 @@
 {
   "_metadata": {
     "description": "Mapping from numeric class labels to canonical character labels for Dataset-B.",
-    "source": "Created for relabeling Dataset-B folders to canonical labels after tallying with real alphabet."
+    "source": "created for relabeling Dataset-B folders to canonical labels after tallying with real alphabet - manually verified using the internet resources."
   },
-
   "1": "ka",
   "2": "kha",
   "3": "ga",
   "4": "gha",
   "5": "nga",
-
   "6": "cha",
   "7": "chha",
   "8": "ja",
   "9": "jha",
   "10": "nya",
-
   "11": "tta",
   "12": "ttha",
   "13": "dda",
   "14": "ddha",
   "15": "nna",
-
   "16": "ta",
   "17": "tha",
   "18": "da",
   "19": "dha",
   "20": "na",
-
   "21": "pa",
   "22": "pha",
   "23": "ba",
   "24": "bha",
   "25": "ma",
-
   "26": "ya",
   "27": "ra",
   "28": "la",
   "29": "va",
-
   "30": "sha",
   "31": "ssa",
   "32": "sa",
   "33": "ha",
-  "34": "lla",
-  "35": "ksha",
+  "34": "ksha",
+  "35": "tra",
   "36": "gyan",
-
   "37": "a",
   "38": "aa",
   "39": "i",
@@ -63,7 +55,6 @@
   "50": "au",
   "51": "am",
   "52": "ah",
-
   "53": "0",
   "54": "1",
   "55": "2",
