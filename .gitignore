@@ -1,5 +1,5 @@
 # Virtual environment
-venv/
+.venv/
 
 # Python bytecode
 __pycache__/
@@ -25,17 +25,14 @@ Thumbs.db
 *.tmp
 *.swp
 TODO.md
+NOTE.md
 
 # Model checkpoints
 model/*.pth
 
 # trash (temp files/folders created during development)
+model/*.csv
 
-# Datasets (exclude large data folders) ---
+# Datasets (exclude large data folders)
 data/
 Backup/
-
-
-
-
-

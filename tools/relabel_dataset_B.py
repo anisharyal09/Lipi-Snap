@@ -12,7 +12,7 @@ import shutil
 import argparse
 from pathlib import Path
 
-# --------- CONFIG ----------
+# --- Configuration ---
 MAPPING_PATH = "mapping/relabel_dataset_B.json"
 DATA_B_ROOT  = "data/data_B"          # Source folder
 TARGET_B_ROOT = "data/data_B_relabel" # Destination folder
@@ -31,9 +31,7 @@ def load_mapping(path: str) -> dict:
     return {str(k): v for k, v in mapping.items()}
 
 def relabel_split(src_split_dir: Path, dst_split_dir: Path, mapping: dict, mode: str, dry_run: bool) -> None:
-    """
-    Iterates numeric folders in src_split_dir and moves/copies content to dst_split_dir.
-    """
+    # Iterates over numeric folders in src_split_dir and moves/copies content to dst_split_dir.
     if not src_split_dir.is_dir():
         print(f"[WARN] Source split missing: {src_split_dir}")
         return
@@ -45,7 +43,7 @@ def relabel_split(src_split_dir: Path, dst_split_dir: Path, mapping: dict, mode:
         print(f"[INFO] No numeric folders found in {src_split_dir}")
         return
 
-    print(f"\n=== Processing Split: {src_split_dir.name} ===")
+    print(f"\n--- Processing Split: {src_split_dir.name} ---")
     
     for num_dir in sorted(numeric_folders, key=lambda p: int(p.name)):
         num = num_dir.name
@@ -61,7 +59,7 @@ def relabel_split(src_split_dir: Path, dst_split_dir: Path, mapping: dict, mode:
             print(f"[DRY] {num_dir.relative_to(DATA_B_ROOT)} -> {label} ({count} files)")
             continue
 
-        # Create destination label folder
+        # Ensure the target label directory exists
         final_dst_dir.mkdir(parents=True, exist_ok=True)
 
         moved_count = 0
@@ -69,7 +67,7 @@ def relabel_split(src_split_dir: Path, dst_split_dir: Path, mapping: dict, mode:
             if p.is_file() and is_image(p):
                 target = final_dst_dir / p.name
                 
-                # Handle filename collisions
+                # Resolve naming conflicts by appending an incrementing suffix
                 if target.exists():
                     stem, suffix = p.stem, p.suffix
                     i = 1
@@ -85,7 +83,7 @@ def relabel_split(src_split_dir: Path, dst_split_dir: Path, mapping: dict, mode:
 
         print(f"[OK]  {num} -> {label} ({moved_count} files, mode={mode})")
 
-        # Cleanup if moving and folder is now empty
+        # Remove the source folder if it is now empty
         if mode == "move" and not any(num_dir.iterdir()):
             try:
                 num_dir.rmdir()

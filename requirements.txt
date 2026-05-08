@@ -4,3 +4,4 @@ streamlit
 torch
 torchvision
 Pillow>=10.0.0
+opencv-python

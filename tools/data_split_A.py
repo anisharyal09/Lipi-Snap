@@ -1,11 +1,14 @@
-# splitting Dataset A (ranjana-lipi) into train/val folders for easier handling and training.
+"""
+data_split_A.py — Dataset Splitter
 
+Splits Dataset A (ranjana-lipi) into train and validation folders for easier handling and model training.
+"""
 import os, shutil, random
 
 random.seed(42)
 
 SRC = "data/ranjana-lipi/Dataset"   # Dataset A path
-DST = "data/data_A"          # new clean dataset folder
+DST = "data/data_A"          # Destination base directory
 TRAIN_RATIO = 0.8
 
 def is_img(x):

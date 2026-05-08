@@ -1,3 +1,8 @@
+"""
+download_kaggle_dataset.py — Dataset Downloader
+
+Downloads the required Ranjana script datasets from Kaggle
+"""
 import kagglehub
 import os
 import shutil
@@ -12,7 +17,7 @@ def download_dataset(dataset):
     cache_path = kagglehub.dataset_download(dataset)
     print(f"Cached at: {cache_path}")
     
-    # copy to local data/ directory
+    # Copy dataset from Kaggle cache to local data directory
     dataset_name = dataset.split("/")[-1]
     local_path = os.path.join("data", dataset_name)
     

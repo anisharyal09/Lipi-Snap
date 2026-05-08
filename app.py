@@ -1,73 +1,68 @@
 import os
 import json
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
 import streamlit as st
 from PIL import Image
 from torchvision import transforms
 
-# ============================================================================
-# 🎯 CONFIGURATION & CONSTANTS
-# ============================================================================
+# --- Configuration and Constants ---
 CONFIG = {
-    "MODEL_A": {"path": "model/best_char_cnn_data_a.pth", "label": "Dataset A"},
-    "MODEL_B": {"path": "model/best_char_cnn_data_b.pth", "label": "Dataset B"},
+    "MODEL_PATH": "model/best_char_cnn.pth",
     "MAPPING_PATH": "mapping/ranjana_to_devanagari.json",
     "IMG_SIZE": 64,
-    "DEVICE": torch.device("cuda" if torch.cuda.is_available() else "cpu")
 }
 
-# ============================================================================
-# 🧠 MODEL ARCHITECTURES
-# ============================================================================
-class CharCNN_A(nn.Module):
-    """Original architecture without Batch Normalization."""
-    def __init__(self, num_classes):
+@st.cache_resource
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+DEVICE = get_device()
+
+# --- Model Architecture ---
+class CharCNN(nn.Module):
+    # Convolutional Neural Network matching the trained architecture.
+    def __init__(self, num_classes: int) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.MaxPool2d(2, 2),
+        self.block1 = nn.Sequential(
+            nn.Conv2d(1, 16, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(16, 32, 5, padding=2), nn.ReLU(inplace=True),
+            nn.BatchNorm2d(32), nn.MaxPool2d(2, 2), nn.Dropout2d(p=0.45),
         )
-        self.head = nn.Sequential(
+        self.block2 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, 5, padding=2), nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64), nn.MaxPool2d(2, 2), nn.Dropout2d(p=0.40),
+        )
+        self.block3 = nn.Sequential(
+            nn.Conv2d(64, 128, 5, padding=2), nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(inplace=True),
+            nn.BatchNorm2d(64), nn.MaxPool2d(2, 2), nn.Dropout2d(p=0.45),
+        )
+        self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 8 * 8, 256), nn.ReLU(),
-            nn.Linear(256, num_classes)
+            nn.Linear(64 * 8 * 8, 512), nn.ReLU(inplace=True),
+            nn.BatchNorm1d(512), nn.Dropout(p=0.50),
+            nn.Linear(512, 512), nn.ReLU(inplace=True),
+            nn.BatchNorm1d(512), nn.Dropout(p=0.45),
+            nn.Linear(512, 64), nn.ReLU(inplace=True),
+            nn.BatchNorm1d(64), nn.Dropout(p=0.35),
+            nn.Linear(64, num_classes),
         )
 
-    def forward(self, x):
-        return self.head(self.net(x))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        return self.classifier(x)
 
-class CharCNN_B(nn.Module):
-    """Improved architecture with Batch Normalization and Dropout."""
-    def __init__(self, num_classes):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(1, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(), nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(), nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(), nn.MaxPool2d(2, 2),
-        )
-        self.head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(128 * 8 * 8, 256), nn.BatchNorm1d(256), nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, num_classes)
-        )
-
-    def forward(self, x):
-        return self.head(self.net(x))
-
-# ============================================================================
-# 🛠️ UTILS & PREPROCESSING
-# ============================================================================
-class BinarizeInvert:
-    """Custom transform to binarize and invert images for better OCR contrast."""
-    def __init__(self, threshold=0.5):
-        self.threshold = threshold
-
-    def __call__(self, tensor: torch.Tensor):
-        return 1.0 - (tensor > self.threshold).float()
-
+# --- Utilities and Preprocessing ---
 @st.cache_data
 def load_mapping(path: str):
     if not os.path.exists(path):
@@ -75,40 +70,60 @@ def load_mapping(path: str):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def get_transform(apply_binarize: bool):
-    t_list = [
-        transforms.Grayscale(1),
-        transforms.Resize((CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"])),
-        transforms.ToTensor(),
-    ]
-    if apply_binarize:
-        t_list.append(BinarizeInvert())
-    t_list.append(transforms.Normalize(mean=[0.5], std=[0.5]))
-    return transforms.Compose(t_list)
+def preprocess_image(uploaded_file, apply_opencv=True) -> Image.Image:
+    # Simulates training conditions: Grayscale -> Otsu Threshold -> Bitwise Invert -> 64x64 Resize.
+    # Read raw bytes into numpy array
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    
+    if apply_opencv:
+        # Decode image using OpenCV
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        
+        # 1. Grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 2. Otsu's Binarisation
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 3. Invert (strokes become white, background becomes black)
+        inverted = cv2.bitwise_not(binary)
+        
+        # 4. Resize to 64x64
+        resized = cv2.resize(inverted, (CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"]), interpolation=cv2.INTER_AREA)
+        
+        return Image.fromarray(resized, mode="L")
+    else:
+        # Fallback: Just load via PIL, resize and grayscale
+        img = Image.open(uploaded_file).convert("L")
+        return img.resize((CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"]))
 
-# ============================================================================
-# 🚀 CORE LOGIC: MODEL LOADING & PREDICTION
-# ============================================================================
+# PyTorch normalisation (matches validation transforms)
+inference_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize([0.5], [0.5]),
+])
+
+# --- Core Logic: Model Loading and Prediction ---
 @st.cache_resource
-def load_trained_model(model_choice: str):
-    config_key = "MODEL_A" if "Original" in model_choice else "MODEL_B"
-    path = CONFIG[config_key]["path"]
-    ModelClass = CharCNN_A if config_key == "MODEL_A" else CharCNN_B
-
+def load_trained_model():
+    path = CONFIG["MODEL_PATH"]
+    
     if not os.path.exists(path):
         return None, None
 
-    checkpoint = torch.load(path, map_location=CONFIG["DEVICE"])
+    checkpoint = torch.load(path, map_location=DEVICE, weights_only=False)
     classes = checkpoint['classes']
-    model = ModelClass(len(classes)).to(CONFIG["DEVICE"])
+    
+    model = CharCNN(len(classes)).to(DEVICE)
     model.load_state_dict(checkpoint['state_dict'])
     model.eval()
     return model, classes
 
-def predict(image: Image, model: nn.Module, classes: list, use_binarize: bool):
-    transform = get_transform(use_binarize)
-    img_tensor = transform(image).unsqueeze(0).to(CONFIG["DEVICE"])
+def predict(pil_img: Image.Image, model: nn.Module, classes: list):
+    # Prepare image for the model
+    img_tensor = inference_transform(pil_img).unsqueeze(0).to(DEVICE)
     
+    # Run forward pass and get prediction confidence
     with torch.no_grad():
         logits = model(img_tensor)
         probs = torch.nn.functional.softmax(logits, dim=1)
@@ -116,63 +131,119 @@ def predict(image: Image, model: nn.Module, classes: list, use_binarize: bool):
     
     return classes[idx.item()], conf.item() * 100
 
-# ============================================================================
-# 🖥️ STREAMLIT INTERFACE
-# ============================================================================
+# --- Streamlit Interface ---
 def main():
-    st.set_page_config(page_title="Lipi Snap", page_icon="🌟")
-    st.title("🌟 Lipi Snap")
-    st.markdown("Digitizing ancient scripts with modern Neural Networks.")
+    st.set_page_config(page_title="Lipi Snap - Ranjana OCR", page_icon="📝", layout="centered")
+    
+    # Custom CSS for styling
+    st.markdown("""
+        <style>
+        .main-header {
+            font-size: 3rem;
+            color: #ff4b4b;
+            text-align: center;
+            font-weight: 800;
+            margin-bottom: 0px;
+        }
+        .sub-header {
+            text-align: center;
+            font-size: 1.2rem;
+            color: #aaaaaa;
+            margin-bottom: 30px;
+        }
+        .metric-card {
+            background-color: #262730;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #3d3f4b;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<p class="main-header">📝 Lipi Snap</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Ranjana Script Character Recognition</p>', unsafe_allow_html=True)
     
     # --- Sidebar ---
-    st.sidebar.header("🛠️ Settings")
-    choice = st.sidebar.radio("Model Version", [CONFIG["MODEL_A"]["label"], CONFIG["MODEL_B"]["label"]])
+    st.sidebar.header("⚙️ Model Status")
     
-    do_binarize = st.sidebar.checkbox(
-        "Binarize & Invert", 
-        value=("Improved" in choice),
-        help="Recommended for Model B to match training data style."
-    )
-
-    # Load resources
+    model, classes = load_trained_model()
     mapping = load_mapping(CONFIG["MAPPING_PATH"])
-    model, classes = load_trained_model(choice)
 
     if not model:
-        st.sidebar.error(f"⚠️ weights not found at the specified path.")
+        st.sidebar.error(f"⚠️ Model checkpoint not found at `{CONFIG['MODEL_PATH']}`.")
+        st.sidebar.info("Please run `train.py` first until it saves a new best accuracy.")
+        st.warning("Model weights are missing. Cannot perform inference.")
         return
+    else:
+        st.sidebar.success(f"✅ Model Loaded Successfully")
+        st.sidebar.metric("Total Classes", len(classes))
+        st.sidebar.info(f"Running on: {str(DEVICE).upper()}")
 
-    st.sidebar.success(f"✅ Model Loaded")
+    st.sidebar.markdown("---")
+    st.sidebar.header("🧪 Preprocessing Options")
+    apply_opencv = st.sidebar.checkbox(
+        "Apply OpenCV Preprocessing", 
+        value=True,
+        help="Applies Otsu's thresholding and binarisation to match training conditions."
+    )
 
     # --- Main UI ---
-    uploaded_file = st.file_uploader("Upload a Ranjana character snippet", type=["jpg", "png", "jpeg"])
+    st.markdown("### Upload Character Image")
+    uploaded_file = st.file_uploader("", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
 
     if uploaded_file:
-        img = Image.open(uploaded_file).convert('RGB')
+        # Preprocess using OpenCV (like in inference.py)
+        processed_pil_img = preprocess_image(uploaded_file, apply_opencv=apply_opencv)
         
+        st.markdown("### Vision Pipeline")
         col1, col2 = st.columns(2)
         with col1:
-            st.image(img, caption="Original Image", use_container_width=True)
+            # We need to rewind the file pointer to read it again for raw display
+            uploaded_file.seek(0)
+            raw_img = Image.open(uploaded_file).convert('RGB')
+            st.image(raw_img, caption="1. Raw Uploaded Image", use_container_width=True)
         
         with col2:
-            # Preview what the model actually processes
-            preview_t = get_transform(do_binarize)
-            # Re-normalize for display: (x * 0.5) + 0.5
-            viewable_tensor = (preview_t(img) * 0.5) + 0.5
-            st.image(transforms.ToPILImage()(viewable_tensor), caption="Processed Input", use_container_width=True)
+            st.image(processed_pil_img, caption="2. Processed Input (64x64, Binarised, Inverted)", use_container_width=True)
 
-        if st.button("Recognize Character", use_container_width=True, type="primary"):
-            with st.spinner("Analyzing strokes..."):
-                label, confidence = predict(img, model, classes, do_binarize)
-                devanagari = mapping.get(label, "N/A")
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Prediction
+        if st.button("🔮 Recognize Character", use_container_width=True, type="primary"):
+            with st.spinner("Running CharCNN forward pass..."):
+                label, confidence = predict(processed_pil_img, model, classes)
+                devanagari = mapping.get(label, "No mapping found")
 
-                # Result Display
                 st.markdown("---")
-                res_col1, res_col2 = st.columns(2)
-                res_col1.metric("Predicted Label", label)
-                res_col2.metric("Confidence", f"{confidence:.1f}%")
+                st.markdown("### Results")
                 
-                st.info(f"**Devanagari Mapping:** {devanagari}")
+                # Display metrics in custom cards
+                m1, m2, m3 = st.columns(3)
+                
+                with m1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <p style="color: #aaaaaa; margin: 0;">Predicted Class</p>
+                        <h2 style="margin: 0; color: white;">{label}</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with m2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <p style="color: #aaaaaa; margin: 0;">Confidence</p>
+                        <h2 style="margin: 0; color: #4bffa5;">{confidence:.1f}%</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with m3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <p style="color: #aaaaaa; margin: 0;">Devanagari</p>
+                        <h2 style="margin: 0; color: white;">{devanagari}</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
