@@ -8,7 +8,7 @@ Instead of training separate models on segmented datasets, we combined multiple 
 * `data/merged_dataset/train`
 * `data/merged_dataset/val`
 
-The merged dataset contains over 100,000 training images spread across 68 distinct character classes. 
+The merged dataset contains over 100,000 training images spread across 62 distinct character classes. 
 
 ### Preprocessing Standards
 All images in the final dataset adhere to the following preprocessing format, which is required by the `CharCNN` architecture:

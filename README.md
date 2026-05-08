@@ -7,7 +7,7 @@
 ## ✨ Features
 - **Research-Backed Architecture** as per the Bati & Dawadi paper.
 - **Robust Preprocessing**: Real-time OpenCV pipeline (Grayscale → Otsu's Binarisation → Inversion → 64x64 Resize) to handle raw images perfectly.
-- **Devanagari Translation**: Automatically maps the recognized Ranjana character to Devanagari.
+- **Devanagari Transliteration**: Automatically maps the recognized Ranjana character to its Devanagari equivalent.
 
 ## 🚀 Quick Start
 
@@ -43,6 +43,7 @@ Lipi-Snap/
 │   ├── train.py           # CharCNN Training Script
 │   ├── inference.py       # CLI Single-Image Inference
 │   ├── evaluate.py        # Test the model
+│   ├── extend_training.py # Optional script to continue training from a previously saved best model.
 │   └── best_char_cnn.pth  # Saved Model Weights (Generated)
 ├── tools/                 # Data Processing Tools
 ├── mapping/               # JSON Dictionary Mappings
