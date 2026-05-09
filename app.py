@@ -70,7 +70,7 @@ def load_mapping(path: str):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
-def preprocess_image(uploaded_file, apply_opencv=True) -> Image.Image:
+def preprocess_image(uploaded_file, apply_opencv=True, already_dark_bg=False) -> Image.Image:
     # Simulates training conditions: Grayscale -> Otsu Threshold -> Bitwise Invert -> 64x64 Resize.
     # Read raw bytes into numpy array
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
@@ -86,7 +86,10 @@ def preprocess_image(uploaded_file, apply_opencv=True) -> Image.Image:
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         # 3. Invert (strokes become white, background becomes black)
-        inverted = cv2.bitwise_not(binary)
+        if already_dark_bg:
+            inverted = binary
+        else:
+            inverted = cv2.bitwise_not(binary)
         
         # 4. Resize to 64x64
         resized = cv2.resize(inverted, (CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"]), interpolation=cv2.INTER_AREA)
@@ -187,6 +190,11 @@ def main():
         value=True,
         help="Applies Otsu's thresholding and binarisation to match training conditions."
     )
+    already_dark_bg = st.sidebar.checkbox(
+        "Image already has Dark Background", 
+        value=False,
+        help="Check this if uploaded image already has white text on a black background to prevent improper inversion."
+    )
 
     # --- Main UI ---
     st.markdown("### Upload Character Image")
@@ -194,7 +202,7 @@ def main():
 
     if uploaded_file:
         # Preprocess using OpenCV (like in inference.py)
-        processed_pil_img = preprocess_image(uploaded_file, apply_opencv=apply_opencv)
+        processed_pil_img = preprocess_image(uploaded_file, apply_opencv=apply_opencv, already_dark_bg=already_dark_bg)
         
         st.markdown("### Vision Pipeline")
         col1, col2 = st.columns(2)
