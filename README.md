@@ -41,13 +41,16 @@ Lipi-Snap/
 ├── app.py                 # Streamlit UI & Visual Inference
 ├── model/                 # Neural Network Code
 │   ├── train.py           # CharCNN Training Script
+│   ├── extend_training.py # Optional script to continue training from a previously saved best model.
 │   ├── inference.py       # CLI Single-Image Inference
 │   ├── evaluate.py        # Test the model
-│   ├── extend_training.py # Optional script to continue training from a previously saved best model.
+│   ├── audit.py           # Audit the model
 │   └── best_char_cnn.pth  # Saved Model Weights (Generated)
-├── tools/                 # Data Processing Tools
 ├── mapping/               # JSON Dictionary Mappings
 ├── data/                  # Merged Datasets
+├── generated_outputs/     # Generated Outputs (Reports, Predictions, etc.)
+├── tools/                 # Data Processing Tools
+├── requirements.txt       # Project Dependencies
 ├── .gitignore
 ├── DATASET.md             # Dataset documentation
 └── README.md              # Overall documentation

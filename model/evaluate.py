@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 
 class CharCNN(nn.Module):
     # Convolutional Neural Network for Ranjana script character classification.
-    def __init__(self, num_classes=68):
+    def __init__(self, num_classes=62):
         super(CharCNN, self).__init__()
         self.block1 = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, padding=1),
@@ -65,7 +65,6 @@ class CharCNN(nn.Module):
         x = self.block3(x)
         x = self.classifier(x)
         return x
-
 
 def load_mapping(mapping_path):
     # Load a class mapping from a JSON file.
@@ -183,7 +182,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--device', default=None)
     parser.add_argument('--num-classes', type=int, default=None)
-    parser.add_argument('--wrong-out', default='model/wrong_predictions.csv')
+    parser.add_argument('--wrong-out', default='generated_outputs/wrong_predictions.csv')
     parser.add_argument('--show-wrong-limit', type=int, default=20)
     args = parser.parse_args()
 
@@ -255,7 +254,8 @@ def main():
     if total > 0:
         acc = (correct / total) * 100
         print(f"\nRESULT: {correct}/{total} correct — Accuracy: {acc:.2f}%")
-        print(f"Wrong predictions: {len(wrong_samples)}")
+        
+        print(f"\nWrong predictions: {len(wrong_samples)}")
 
         if wrong_samples:
             save_wrong_samples(wrong_samples, args.wrong_out)

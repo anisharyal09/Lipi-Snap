@@ -30,8 +30,8 @@ torch.backends.cudnn.benchmark = False
 # --- Hyperparameters ---
 BATCH_SIZE = 32
 LEARNING_RATE = 0.0001
-FINE_TUNE_LR = 0.00005  # Lower LR for resuming
-TOTAL_EPOCHS = 36       # Target goal
+FINE_TUNE_LR = 0.00001  # Lower LR for resuming
+TOTAL_EPOCHS = 54      # Target goal
 IMAGE_SIZE = 64
 
 # --- Paths ---
@@ -94,7 +94,7 @@ def build_dataloaders():
     train_transform = transforms.Compose([
         transforms.Grayscale(1),
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-        transforms.RandomAffine(degrees=20, scale=(0.8, 1.2), shear=0.51),
+        transforms.RandomAffine(degrees=20, scale=(0.8, 1.2), shear=0.52),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5]),
     ])
@@ -172,8 +172,8 @@ def main():
         current_lr = FINE_TUNE_LR # Switch to fine-tuning rate
         print(f"Resuming from Epoch {start_epoch}. Previous Best Val Acc: {best_val_acc:.2f}%")
 
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=current_lr, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1) #added label smoothing
+    optimizer = optim.Adam(model.parameters(), lr=current_lr, weight_decay=1e-3)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
 
     print(f"Targeting {TOTAL_EPOCHS} total epochs with LR: {current_lr}")

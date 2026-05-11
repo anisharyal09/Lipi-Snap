@@ -8,10 +8,11 @@ import streamlit as st
 from PIL import Image
 from torchvision import transforms
 
-# --- Configuration and Constants ---
+# --- Configuration ---
 CONFIG = {
     "MODEL_PATH": "model/best_char_cnn.pth",
-    "MAPPING_PATH": "mapping/ranjana_to_devanagari.json",
+    "MAPPING_DEV": "mapping/ranjana_to_devanagari.json",
+    "MAPPING_NEWA": "mapping/ranjana_unicode.json",
     "IMG_SIZE": 64,
 }
 
@@ -27,7 +28,6 @@ DEVICE = get_device()
 
 # --- Model Architecture ---
 class CharCNN(nn.Module):
-    # Convolutional Neural Network matching the trained architecture.
     def __init__(self, num_classes: int) -> None:
         super().__init__()
         self.block1 = nn.Sequential(
@@ -62,7 +62,7 @@ class CharCNN(nn.Module):
         x = self.block3(x)
         return self.classifier(x)
 
-# --- Utilities and Preprocessing ---
+# --- Utilities ---
 @st.cache_data
 def load_mapping(path: str):
     if not os.path.exists(path):
@@ -71,187 +71,385 @@ def load_mapping(path: str):
         return json.load(f)
 
 def preprocess_image(uploaded_file, apply_opencv=True, already_dark_bg=False) -> Image.Image:
-    # Simulates training conditions: Grayscale -> Otsu Threshold -> Bitwise Invert -> 64x64 Resize.
-    # Read raw bytes into numpy array
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     
     if apply_opencv:
-        # Decode image using OpenCV
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        
-        # 1. Grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # 2. Otsu's Binarisation
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        # 3. Invert (strokes become white, background becomes black)
         if already_dark_bg:
             inverted = binary
         else:
             inverted = cv2.bitwise_not(binary)
-        
-        # 4. Resize to 64x64
         resized = cv2.resize(inverted, (CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"]), interpolation=cv2.INTER_AREA)
-        
         return Image.fromarray(resized, mode="L")
     else:
-        # Fallback: Just load via PIL, resize and grayscale
         img = Image.open(uploaded_file).convert("L")
         return img.resize((CONFIG["IMG_SIZE"], CONFIG["IMG_SIZE"]))
 
-# PyTorch normalisation (matches validation transforms)
 inference_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.5], [0.5]),
 ])
 
-# --- Core Logic: Model Loading and Prediction ---
 @st.cache_resource
 def load_trained_model():
     path = CONFIG["MODEL_PATH"]
-    
     if not os.path.exists(path):
         return None, None
-
     checkpoint = torch.load(path, map_location=DEVICE, weights_only=False)
     classes = checkpoint['classes']
-    
     model = CharCNN(len(classes)).to(DEVICE)
     model.load_state_dict(checkpoint['state_dict'])
     model.eval()
     return model, classes
 
 def predict(pil_img: Image.Image, model: nn.Module, classes: list):
-    # Prepare image for the model
     img_tensor = inference_transform(pil_img).unsqueeze(0).to(DEVICE)
-    
-    # Run forward pass and get prediction confidence
     with torch.no_grad():
         logits = model(img_tensor)
         probs = torch.nn.functional.softmax(logits, dim=1)
         conf, idx = torch.max(probs, 1)
-    
     return classes[idx.item()], conf.item() * 100
 
-# --- Streamlit Interface ---
-def main():
-    st.set_page_config(page_title="Lipi Snap - Ranjana OCR", page_icon="📝", layout="centered")
+def get_top_predictions(pil_img: Image.Image, model: nn.Module, classes: list, top_k=5):
+    img_tensor = inference_transform(pil_img).unsqueeze(0).to(DEVICE)
+    with torch.no_grad():
+        logits = model(img_tensor)
+        probs = torch.nn.functional.softmax(logits, dim=1)
+        top_probs, top_idxs = torch.topk(probs, top_k, dim=1)
+    results = []
+    for i in range(top_k):
+        results.append((classes[top_idxs[0][i].item()], top_probs[0][i].item() * 100))
+    return results
+
+
+# --- CSS ---
+CUSTOM_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Newa&display=swap');
     
-    # Custom CSS for styling
+    .stApp { font-family: 'Inter', sans-serif; }
+    #MainMenu, header, footer { visibility: hidden; }
+    
+    /* Title */
+    .app-title {
+        text-align: center;
+        padding: 2.5rem 0 0.5rem 0;
+    }
+    .app-title h1 {
+        font-size: 2.8rem;
+        font-weight: 900;
+        background: linear-gradient(135deg, #a78bfa 0%, #ec4899 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin: 0;
+        line-height: 1.15;
+    }
+    .app-title p {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 4px;
+    }
+    
+    /* Divider */
+    .sep {
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+        margin: 20px 0;
+    }
+    
+    /* Section label */
+    .sec-label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #4b5563;
+        margin-bottom: 12px;
+    }
+    
+    /* Image frame */
+    .img-frame {
+        background: rgba(0,0,0,0.25);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+    }
+    .img-frame p {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #4b5563;
+        margin: 8px 0 0 0;
+    }
+    
+    /* Result card */
+    .r-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 14px;
+        padding: 24px 16px;
+        text-align: center;
+    }
+    .r-card .lbl {
+        font-size: 0.65rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #4b5563;
+        margin-bottom: 6px;
+    }
+    .r-card .val {
+        font-size: 1.8rem;
+        font-weight: 800;
+        margin: 0;
+        line-height: 1.2;
+    }
+    .r-card .val.purple { color: #a78bfa; }
+    .r-card .val.green { color: #34d399; }
+    .r-card .val.pink { color: #f472b6; }
+    .r-card .newa-char {
+        font-family: 'Noto Sans Newa', sans-serif;
+        font-size: 2.4rem;
+        color: #fbbf24;
+        line-height: 1.3;
+    }
+    
+    /* Confidence bar */
+    .conf-bg {
+        width: 100%;
+        height: 6px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 100px;
+        margin-top: 10px;
+        overflow: hidden;
+    }
+    .conf-fill {
+        height: 100%;
+        border-radius: 100px;
+    }
+    .conf-fill.hi { background: linear-gradient(90deg, #34d399, #6ee7b7); }
+    .conf-fill.mid { background: linear-gradient(90deg, #fbbf24, #fcd34d); }
+    .conf-fill.lo { background: linear-gradient(90deg, #f87171, #fca5a5); }
+    
+    /* Prediction rows */
+    .pred-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin-bottom: 4px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.04);
+    }
+    .pred-row .pred-newa {
+        font-family: 'Noto Sans Newa', sans-serif;
+        font-size: 1.2rem;
+        color: #fbbf24;
+        width: 28px;
+        text-align: center;
+        flex-shrink: 0;
+    }
+    .pred-row .pred-name {
+        font-weight: 600;
+        color: #d1d5db;
+        font-size: 0.85rem;
+        min-width: 50px;
+    }
+    .pred-row .pred-dev {
+        color: #9ca3af;
+        font-size: 0.85rem;
+        min-width: 20px;
+    }
+    .pred-row .pred-bar-bg {
+        flex-grow: 1;
+        height: 3px;
+        background: rgba(255,255,255,0.04);
+        border-radius: 100px;
+        overflow: hidden;
+    }
+    .pred-row .pred-bar-fill {
+        height: 100%;
+        border-radius: 100px;
+        background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+    }
+    .pred-row .pred-pct {
+        font-weight: 700;
+        font-size: 0.8rem;
+        color: #6b7280;
+        min-width: 52px;
+        text-align: right;
+    }
+    
+    /* Upload area */
+    .stFileUploader > div > div {
+        border: 2px dashed rgba(139,92,246,0.25) !important;
+        border-radius: 14px !important;
+        background: rgba(139,92,246,0.03) !important;
+    }
+    .stFileUploader > div > div:hover {
+        border-color: rgba(139,92,246,0.45) !important;
+        background: rgba(139,92,246,0.06) !important;
+    }
+    
+    /* Button */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #8b5cf6, #7c3aed) !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 10px 20px !important;
+        font-weight: 700 !important;
+        font-size: 0.9rem !important;
+        box-shadow: 0 4px 14px rgba(139,92,246,0.25) !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #7c3aed, #6d28d9) !important;
+        box-shadow: 0 6px 24px rgba(139,92,246,0.35) !important;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: rgba(17,17,27,0.95);
+        border-right: 1px solid rgba(255,255,255,0.05);
+    }
+</style>
+"""
+
+# --- App ---
+def main():
+    st.set_page_config(page_title="Lipi Snap", page_icon="", layout="centered")
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    
+    # Title
     st.markdown("""
-        <style>
-        .main-header {
-            font-size: 3rem;
-            color: #ff4b4b;
-            text-align: center;
-            font-weight: 800;
-            margin-bottom: 0px;
-        }
-        .sub-header {
-            text-align: center;
-            font-size: 1.2rem;
-            color: #aaaaaa;
-            margin-bottom: 30px;
-        }
-        .metric-card {
-            background-color: #262730;
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            border: 1px solid #3d3f4b;
-        }
-        </style>
+        <div class="app-title">
+            <h1>Lipi Snap</h1>
+            <p>Ranjana Script Character Recognition</p>
+        </div>
     """, unsafe_allow_html=True)
     
-    st.markdown('<p class="main-header">📝 Lipi Snap</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Ranjana Script Character Recognition</p>', unsafe_allow_html=True)
+    st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
     
-    # --- Sidebar ---
-    st.sidebar.header("⚙️ Model Status")
-    
+    # Load resources
     model, classes = load_trained_model()
-    mapping = load_mapping(CONFIG["MAPPING_PATH"])
-
+    dev_mapping = load_mapping(CONFIG["MAPPING_DEV"])
+    newa_mapping = load_mapping(CONFIG["MAPPING_NEWA"])
+    
+    # Sidebar — preprocessing options
+    with st.sidebar:
+        st.markdown("### Preprocessing")
+        apply_opencv = st.toggle("OpenCV Pipeline", value=True,
+            help="Otsu threshold + binarise to match training conditions.")
+        already_dark_bg = st.toggle("Dark Background", value=False,
+            help="Enable if image already has white strokes on black.")
+        
+        st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
+        st.markdown("### Info")
+        st.markdown(f"""
+            <div style="font-size: 0.82rem; color: #6b7280; line-height: 1.7;">
+                <strong style="color: #9ca3af;">Classes:</strong> {len(classes) if classes else '—'}<br>
+                <strong style="color: #9ca3af;">Device:</strong> {str(DEVICE).upper()}<br>
+                <strong style="color: #9ca3af;">Model Input:</strong> {CONFIG['IMG_SIZE']}×{CONFIG['IMG_SIZE']} grayscale (auto‑converted)
+            </div>
+        """, unsafe_allow_html=True)
+    
     if not model:
-        st.sidebar.error(f"⚠️ Model checkpoint not found at `{CONFIG['MODEL_PATH']}`.")
-        st.sidebar.info("Please run `train.py` first until it saves a new best accuracy.")
-        st.warning("Model weights are missing. Cannot perform inference.")
+        st.warning("Model weights not found. Run training first.")
         return
-    else:
-        st.sidebar.success(f"✅ Model Loaded Successfully")
-        st.sidebar.metric("Total Classes", len(classes))
-        st.sidebar.info(f"Running on: {str(DEVICE).upper()}")
-
-    st.sidebar.markdown("---")
-    st.sidebar.header("🧪 Preprocessing Options")
-    apply_opencv = st.sidebar.checkbox(
-        "Apply OpenCV Preprocessing", 
-        value=True,
-        help="Applies Otsu's thresholding and binarisation to match training conditions."
-    )
-    already_dark_bg = st.sidebar.checkbox(
-        "Image already has Dark Background", 
-        value=False,
-        help="Check this if uploaded image already has white text on a black background to prevent improper inversion."
-    )
-
-    # --- Main UI ---
-    st.markdown("### Upload Character Image")
-    uploaded_file = st.file_uploader("", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
-
+    
+    # Upload
+    st.markdown('<p class="sec-label">Upload</p>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Upload image", type=["jpg", "png", "jpeg"], label_visibility="collapsed")
+    
     if uploaded_file:
-        # Preprocess using OpenCV (like in inference.py)
-        processed_pil_img = preprocess_image(uploaded_file, apply_opencv=apply_opencv, already_dark_bg=already_dark_bg)
+        processed = preprocess_image(uploaded_file, apply_opencv=apply_opencv, already_dark_bg=already_dark_bg)
         
-        st.markdown("### Vision Pipeline")
-        col1, col2 = st.columns(2)
-        with col1:
-            # We need to rewind the file pointer to read it again for raw display
+        st.markdown('<p class="sec-label" style="margin-top:20px;">Pipeline</p>', unsafe_allow_html=True)
+        c1, c2 = st.columns(2, gap="medium")
+        with c1:
             uploaded_file.seek(0)
-            raw_img = Image.open(uploaded_file).convert('RGB')
-            st.image(raw_img, caption="1. Raw Uploaded Image", use_container_width=True)
+            raw = Image.open(uploaded_file).convert('RGB')
+            st.markdown('<div class="img-frame">', unsafe_allow_html=True)
+            st.image(raw, width="stretch")
+            st.markdown('<p>Uploaded</p></div>', unsafe_allow_html=True)
+        with c2:
+            st.markdown('<div class="img-frame">', unsafe_allow_html=True)
+            st.image(processed, width="stretch")
+            st.markdown('<p>Processed (64×64 Grayscale)</p></div>', unsafe_allow_html=True)
         
-        with col2:
-            st.image(processed_pil_img, caption="2. Processed Input (64x64, Binarised, Inverted)", use_container_width=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("")
         
-        # Prediction
-        if st.button("🔮 Recognize Character", use_container_width=True, type="primary"):
-            with st.spinner("Running CharCNN forward pass..."):
-                label, confidence = predict(processed_pil_img, model, classes)
-                devanagari = mapping.get(label, "No mapping found")
-
-                st.markdown("---")
-                st.markdown("### Results")
-                
-                # Display metrics in custom cards
-                m1, m2, m3 = st.columns(3)
-                
-                with m1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <p style="color: #aaaaaa; margin: 0;">Predicted Class</p>
-                        <h2 style="margin: 0; color: white;">{label}</h2>
+        if st.button("Recognize", type="primary"):
+            with st.spinner(""):
+                label, confidence = predict(processed, model, classes)
+                devanagari = dev_mapping.get(label, "—")
+                newa_char = newa_mapping.get(label, "—")
+                top_preds = get_top_predictions(processed, model, classes, top_k=5)
+            
+            st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
+            st.markdown('<p class="sec-label">Result</p>', unsafe_allow_html=True)
+            
+            bar_cls = "hi" if confidence >= 90 else ("mid" if confidence >= 60 else "lo")
+            
+            r1, r2, r3, r4 = st.columns(4, gap="small")
+            
+            with r1:
+                st.markdown(f"""
+                    <div class="r-card">
+                        <p class="lbl">Class</p>
+                        <p class="val purple">{label}</p>
                     </div>
-                    """, unsafe_allow_html=True)
-                
-                with m2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <p style="color: #aaaaaa; margin: 0;">Confidence</p>
-                        <h2 style="margin: 0; color: #4bffa5;">{confidence:.1f}%</h2>
+                """, unsafe_allow_html=True)
+            with r2:
+                st.markdown(f"""
+                    <div class="r-card">
+                        <p class="lbl">Ranjana</p>
+                        <p class="newa-char">{newa_char}</p>
                     </div>
-                    """, unsafe_allow_html=True)
-                    
-                with m3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <p style="color: #aaaaaa; margin: 0;">Devanagari</p>
-                        <h2 style="margin: 0; color: white;">{devanagari}</h2>
+                """, unsafe_allow_html=True)
+            with r3:
+                st.markdown(f"""
+                    <div class="r-card">
+                        <p class="lbl">Devanagari</p>
+                        <p class="val pink">{devanagari}</p>
                     </div>
-                    """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            with r4:
+                st.markdown(f"""
+                    <div class="r-card">
+                        <p class="lbl">Confidence</p>
+                        <p class="val green">{confidence:.1f}%</p>
+                        <div class="conf-bg">
+                            <div class="conf-fill {bar_cls}" style="width:{confidence}%;"></div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Top predictions
+            st.markdown('<p class="sec-label" style="margin-top:24px;">Top Predictions</p>', unsafe_allow_html=True)
+            
+            max_conf = top_preds[0][1] if top_preds else 100
+            for p_label, p_conf in top_preds:
+                p_dev = dev_mapping.get(p_label, "—")
+                p_newa = newa_mapping.get(p_label, "—")
+                bar_w = (p_conf / max_conf) * 100 if max_conf > 0 else 0
+                st.markdown(f"""
+                    <div class="pred-row">
+                        <span class="pred-newa">{p_newa}</span>
+                        <span class="pred-name">{p_label}</span>
+                        <span class="pred-dev">{p_dev}</span>
+                        <div class="pred-bar-bg">
+                            <div class="pred-bar-fill" style="width:{bar_w}%;"></div>
+                        </div>
+                        <span class="pred-pct">{p_conf:.2f}%</span>
+                    </div>
+                """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()

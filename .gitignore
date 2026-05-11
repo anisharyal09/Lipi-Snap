@@ -35,4 +35,6 @@ model/*.csv
 
 # Datasets (exclude large data folders)
 data/
+generated_outputs/
+
 Backup/
