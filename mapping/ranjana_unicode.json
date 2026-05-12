@@ -1,5 +1,6 @@
 {
   "_meta": "Maps romanized class names to Newa Unicode characters (U+11400 block).",
+  "use": "for copy-purpose",
   "a": "𑐀",
   "aa": "𑐁",
   "i": "𑐂",

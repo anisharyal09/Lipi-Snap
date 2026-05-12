@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import streamlit as st
+import base64
 from PIL import Image
 from torchvision import transforms
 
@@ -14,6 +15,10 @@ CONFIG = {
     "MAPPING_DEV": "mapping/ranjana_to_devanagari.json",
     "MAPPING_NEWA": "mapping/ranjana_unicode.json",
     "IMG_SIZE": 64,
+    "FONTS": {
+        "Normal": "font/NithyaRanjanaDU-Regular.otf",
+        "Stylish": "font/ranjana_NLG_v3_fixed.ttf"
+    }
 }
 
 @st.cache_resource
@@ -70,6 +75,14 @@ def load_mapping(path: str):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
+@st.cache_data
+def get_base64_font(font_path: str):
+    """Reads a local font file and returns the Base64 string for CSS injection."""
+    if not os.path.exists(font_path):
+        return ""
+    with open(font_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
+
 def preprocess_image(uploaded_file, apply_opencv=True, already_dark_bg=False) -> Image.Image:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     
@@ -124,11 +137,10 @@ def get_top_predictions(pil_img: Image.Image, model: nn.Module, classes: list, t
     return results
 
 
-# --- CSS ---
+# --- Static CSS ---
 CUSTOM_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Newa&display=swap');
     
     .stApp { font-family: 'Inter', sans-serif; }
     #MainMenu, header, footer { visibility: hidden; }
@@ -213,8 +225,35 @@ CUSTOM_CSS = """
     .r-card .val.purple { color: #a78bfa; }
     .r-card .val.green { color: #34d399; }
     .r-card .val.pink { color: #f472b6; }
-    .r-card .newa-char {
-        font-family: 'Noto Sans Newa', sans-serif;
+    
+    /* Newa char: .copy-only = invisible Newa Unicode (for copy-paste), .visual-only = rendered via DynamicRanjana font */
+    .newa-char-container {
+        position: relative;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+    }
+    .copy-only {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        color: transparent;
+        z-index: 10;
+        overflow: hidden;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .copy-only::selection {
+        background: rgba(139, 92, 246, 0.4);
+        color: transparent;
+    }
+    .visual-only {
+        pointer-events: none;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+    .newa-char {
         font-size: 2.4rem;
         color: #fbbf24;
         line-height: 1.3;
@@ -248,12 +287,13 @@ CUSTOM_CSS = """
         background: rgba(255,255,255,0.02);
         border: 1px solid rgba(255,255,255,0.04);
     }
-    .pred-row .pred-newa {
-        font-family: 'Noto Sans Newa', sans-serif;
+    .pred-row .pred-newa-container {
         font-size: 1.2rem;
         color: #fbbf24;
         width: 28px;
         text-align: center;
+        display: inline-block;
+        position: relative;
         flex-shrink: 0;
     }
     .pred-row .pred-name {
@@ -323,10 +363,60 @@ CUSTOM_CSS = """
 
 # --- App ---
 def main():
-    st.set_page_config(page_title="Lipi Snap", page_icon="", layout="centered")
+    st.set_page_config(page_title="Lipi Snap", page_icon="📸", layout="centered")
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     
-    # Title
+    # --- Sidebar ---
+    with st.sidebar:
+        st.markdown("### Typography")
+        selected_font_name = st.radio(
+            "Display Font", 
+            options=list(CONFIG["FONTS"].keys()),
+            help="Choose which font to render the Ranjana text with."
+        )
+        
+        st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
+        st.markdown("### Preprocessing")
+        apply_opencv = st.toggle("OpenCV Pipeline", value=True,
+            help="Otsu threshold + binarise to match training conditions.")
+        already_dark_bg = st.toggle("Dark Background", value=False,
+            help="Enable if image already has white strokes on black.")
+        
+        st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
+        
+        model, classes = load_trained_model()
+        st.markdown("### Info")
+        st.markdown(f"""
+            <div style="font-size: 0.82rem; color: #6b7280; line-height: 1.7;">
+                <strong style="color: #9ca3af;">Classes:</strong> {len(classes) if classes else '—'}<br>
+                <strong style="color: #9ca3af;">Device:</strong> {str(DEVICE).upper()}<br>
+                <strong style="color: #9ca3af;">Model Input:</strong> {CONFIG['IMG_SIZE']}×{CONFIG['IMG_SIZE']}
+            </div>
+        """, unsafe_allow_html=True)
+
+    # --- Dynamic Font Injection ---
+    font_path = CONFIG["FONTS"][selected_font_name]
+    b64_font = get_base64_font(font_path)
+    
+    if b64_font:
+        font_format = "truetype" if font_path.endswith(".ttf") else "opentype"
+        mime_type = "font/ttf" if font_path.endswith(".ttf") else "font/opentype"
+        st.markdown(f"""
+        <style>
+            @font-face {{
+                font-family: 'DynamicRanjana';
+                src: url('data:{mime_type};base64,{b64_font}') format('{font_format}');
+            }}
+            .visual-only {{
+                font-family: 'DynamicRanjana', sans-serif !important;
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        st.sidebar.error(f"⚠️ Font file not found at {font_path}")
+
+
+    # --- Main UI ---
     st.markdown("""
         <div class="app-title">
             <h1>Lipi Snap</h1>
@@ -336,28 +426,8 @@ def main():
     
     st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
     
-    # Load resources
-    model, classes = load_trained_model()
     dev_mapping = load_mapping(CONFIG["MAPPING_DEV"])
     newa_mapping = load_mapping(CONFIG["MAPPING_NEWA"])
-    
-    # Sidebar — preprocessing options
-    with st.sidebar:
-        st.markdown("### Preprocessing")
-        apply_opencv = st.toggle("OpenCV Pipeline", value=True,
-            help="Otsu threshold + binarise to match training conditions.")
-        already_dark_bg = st.toggle("Dark Background", value=False,
-            help="Enable if image already has white strokes on black.")
-        
-        st.markdown('<div class="sep"></div>', unsafe_allow_html=True)
-        st.markdown("### Info")
-        st.markdown(f"""
-            <div style="font-size: 0.82rem; color: #6b7280; line-height: 1.7;">
-                <strong style="color: #9ca3af;">Classes:</strong> {len(classes) if classes else '—'}<br>
-                <strong style="color: #9ca3af;">Device:</strong> {str(DEVICE).upper()}<br>
-                <strong style="color: #9ca3af;">Model Input:</strong> {CONFIG['IMG_SIZE']}×{CONFIG['IMG_SIZE']} grayscale (auto‑converted)
-            </div>
-        """, unsafe_allow_html=True)
     
     if not model:
         st.warning("Model weights not found. Run training first.")
@@ -410,7 +480,10 @@ def main():
                 st.markdown(f"""
                     <div class="r-card">
                         <p class="lbl">Ranjana</p>
-                        <p class="newa-char">{newa_char}</p>
+                        <div class="val newa-char newa-char-container">
+                            <span class="copy-only">{newa_char}</span>
+                            <span class="visual-only">{devanagari}</span>
+                        </div>
                     </div>
                 """, unsafe_allow_html=True)
             with r3:
@@ -441,7 +514,10 @@ def main():
                 bar_w = (p_conf / max_conf) * 100 if max_conf > 0 else 0
                 st.markdown(f"""
                     <div class="pred-row">
-                        <span class="pred-newa">{p_newa}</span>
+                        <span class="pred-newa-container">
+                            <span class="copy-only">{p_newa}</span>
+                            <span class="visual-only">{p_dev}</span>
+                        </span>
                         <span class="pred-name">{p_label}</span>
                         <span class="pred-dev">{p_dev}</span>
                         <div class="pred-bar-bg">

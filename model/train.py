@@ -338,7 +338,7 @@ def main() -> None:
     print(f"  Trainable parameters : {trainable_params:,}")
 
     # 4. Define Loss, Optimizer, and Learning Rate Scheduler
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     
     # Scheduler: Reduces learning rate if validation accuracy plateaus
