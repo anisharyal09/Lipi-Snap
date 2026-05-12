@@ -31,7 +31,7 @@ torch.backends.cudnn.benchmark = False
 BATCH_SIZE = 32
 LEARNING_RATE = 0.0001
 FINE_TUNE_LR = 0.00001  # Lower LR for resuming
-TOTAL_EPOCHS = 54      # Target goal
+TOTAL_EPOCHS = 63     # Target goal
 IMAGE_SIZE = 64
 
 # --- Paths ---

@@ -15,8 +15,8 @@
 
 
 ## 📈 Performance
-- **Test Accuracy**: **99.68%** (34,610 / 34,720 correct on the test set)
-- **Validation Accuracy**: **98.67%** (achieved at Epoch 29)
+- **Test Accuracy**: **99.70%** (34,617 / 34,720 correct on the test set)
+- **Validation Accuracy**: **98.68%** (achieved at Epoch 61)
 
 ## 🚀 Quick Start
 
