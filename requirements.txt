@@ -1,9 +1,18 @@
-kagglehub
-numpy
-streamlit
+# --- Core Machine Learning & Vision ---
 torch
 torchvision
-Pillow>=10.0.0
+numpy
 opencv-python
+Pillow>=10.0.0
+
+# --- User Interface ---
+streamlit
+
+# ---    Evaluation & Metrics ---
+jiwer
+
+# --- Data Generation & Utilities ---
 tqdm
 fontTools
+datasets
+kagglehub

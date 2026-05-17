@@ -29,12 +29,18 @@ NOTE.md
 
 # Model checkpoints
 model/*.pth
+CharCNN/model/*.pth
+checkpoints/
+
 
 # trash (temp files/folders created during development)
 model/*.csv
 
-# Datasets (exclude large data folders)
-data/
+# Datasets (ignore all except .txt files)
+data/*
+!data/*_clean.txt
+!data/*.txt
+
 generated_outputs/
 
 Backup/

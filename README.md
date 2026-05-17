@@ -1,96 +1,116 @@
-# 🌟 Lipi Snap - Ranjana Script Character Recognition Model
-*A Capstone Python Project for the Samsung Innovation Campus (SIC) at IOE, Pulchowk Campus*
+## 🌟 Lipi Snap — Ranjana Script Word Recognition Model
 
-## 📜 Overview
-**Ranjana Script Character Recognition Model** — A deep learning project implementing a Convolutional Neural Network (CharCNN) to classify and recognize ancient Ranjana (Nepal Lipi) characters and map them to their corresponding Devanagari labels - utilizing PyTorch, OpenCV for preprocessing, and Streamlit for a beautiful real-time inference UI.
+<p align="center">
+  <img src="assets/LS-snap-1.png" alt="Lipi Snap Main Interface - Predicting the complex word 'क्यालिजात्रा'" width="800"/>
+  <br><em>Main interface showcasing image uploading, OpenCV visual preprocessing, and real-time word prediction</em><br><br>
+  <img src="assets/LS-snap-2.png" alt="Lipi Snap Detailed Metrics & Character Confidence Breakdown" width="800"/>
+  <br><em>Detailed metrics breakdown showcasing the greedy CTC decoding path and character-level prediction confidence</em><br>
+</p>
+
+---
+### 📖 Overview
+
+**Ranjana Script Word Recognition** - is a deep learning OCR pipeline that reads full Nepali words rendered in Ranjana (Nepal Lipi) script and outputs their Devanagari transliteration. Built on a **CRNN + CTC architecture**, the model is trained on a massive synthetic dataset of 241k+ images and achieves highly robust and reliable recognition capabilities on both seen and unseen vocabularies.
+
+> **NOTE:** For the older *character-level* CharCNN, see [`CharCNN/`](./CharCNN/) or the [Archive Documentation](./CharCNN_archieve.md).
+
+### ✨ Features
+---
+- **Word-level recognition** — Predicts entire Nepali words in one shot; no segmentation required.
+- **CRNN + CTC architecture** — Standard pipeline (CNN + BiLSTM + CTC Loss) - inspired by [*"Nepal Script Text Recognition using CRNN CTC Architecture"*](https://aclanthology.org/2024.sigul-1.29.pdf) paper.
+- **Dynamic Data Augmentation** — Instead of storing bloated augmented datasets, the model applies random affine transforms, blurs, and noise *on-the-fly* during training for superior faster generalization.
+- **Cross-Platform Env Detection** — Auto-detects and optimizes settings for Kaggle, Google Colab, and local Mac (MPS) environments.
+- **Neo-Minimal Streamlit UI** — A beautiful, dark-themed, glassmorphic UI built for real-time word recognition, featuring:
+  - Real-time vision pipeline preview (Raw vs. Processed Input)
+  - Interactive random testing using unseen synthetic data
+  - Visualized CTC greedy decoding path mapped directly to prediction arrays
+  - Granular character-by-character confidence breakdown bars
+
+### 📈 Performance & Metrics
+---
+- **Vocabulary**: 69 characters (Devanagari vowels, consonants, marks, and digits)
+- **Validation Accuracy**: **99.40%** (achieved dynamically at Epoch 16)
+- **Test Accuracy**: **92.48%** (on unique unseen synthetic test words)
+
+#### 📊 Final Evaluation Metrics 
+*(via `evaluation_script.py`)*
+
+---
+Calculated using the `jiwer` package (where Exact Match Accuracy = 100% - WER).
+
+**1. Synthetic Train/Val (Dynamic Split Data)**
+*Tested on the combined 241,366 samples (both train and val sets included).*
+- **Word Error Rate (WER)**: 0.48%
+- **Exact Match Accuracy**: **99.52%**
+- **Character Error Rate (CER)**: 0.10%
+
+**2. Unseen Test Synthetic Words**
+*Tested on ~6.5k unique unseen words (including both font styles).*
+- **Word Error Rate (WER)**: 7.48%
+- **Exact Match Accuracy**: **92.52%**
+- **Character Error Rate (CER)**: 1.24%
 
 
-## ✨ Features
-- **Character-level recognition** — The model is trained to recognize individual Ranjana characters (handwritten or typed), not whole words or sentences.
-- **PyTorch-based CharCNN** — A custom implementation of the Bati & Dawadi architecture, optimized for high-precision recognition of 62 Ranjana classes.
-- **Streamlit Web UI** — Dark-themed interface with real-time image upload, preprocessing preview, and top-5 predictions with confidence bars.
-- **Robust Preprocessing** — OpenCV pipeline (Otsu → Binarise → Invert → 64×64) with dark-background toggle.
-- **Dual Script Output** — Displays both predicted Ranjana (Newa) Transcription and Devanagari Transliteration side-by-side.
-- **Dynamic Font & Newa Unicode (U+11400) Support** — Switch between Normal and Stylish Ranjana display fonts (dynamically injected via base64) while maintaining copy-pasteable Ranjana Unicode under the hood via CSS overlay idea.
-
-
-## 📈 Performance
-- **Test Accuracy**: **99.70%** (34,617 / 34,720 correct on the test set)
-- **Validation Accuracy**: **98.68%** (achieved at Epoch 61)
-
-## 🚀 Quick Start
-
-### 1. Setup Virtual Environment
+### 🚀 Quick Start
+---
 ```bash
+# 1. Setup Virtual Environment
 python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate  # Windows
-```
+source .venv/bin/activate
+# .venv\Scripts\activate  (window)
 
-### 2. Install Dependencies
-```bash
+# 2. Install Dependencies
 pip install -r requirements.txt
+
+# 3. Generate Training Data (images+labels) using scripts in tools/ folder
+
+# 4. Train the Model
+python model/train_crnn.py
+
+# 5. Evaluate the Model (CER/WER/Accuracy)
+python model/evaluation_script.py
+
+# 6. Run the Web UI
+streamlit run app_crnn_ctc.py
 ```
 
-### Run Training
-```bash
-python model/train.py
-``` 
-*Automatically saves the best performing model to model/best_char_cnn.pth.*
-
-### Run the App
-```bash
-streamlit run app.py
-```
-Open [http://localhost:8501](http://localhost:8501)
-
-## 📁 Project Structure
-```
+### 📁 Project Structure
+---
+```text
 Lipi-Snap/
-├── app.py                 # Streamlit UI & Visual Inference
-├── model/                 # Neural Network Code
-│   ├── train.py           # CharCNN Training Script
-│   ├── extend_training.py # Optional script to continue training from a previously saved best model.
-│   ├── inference.py       # CLI Single-Image Inference
-│   ├── evaluate.py        # Test the model
-│   ├── audit.py           # Audit the model
-│   └── best_char_cnn.pth  # Saved Model Weights (Generated)
-├── font/                  # Ranjana Display Fonts (.otf/.ttf)
-├── mapping/               # JSON Dictionary Mappings
-├── data/                  # Merged Datasets
-├── generated_outputs/     # Generated Outputs (Reports, Predictions, etc.)
-├── tools/                 # Data Processing & Font Patching Scripts
-├── requirements.txt       # Project Dependencies
+├── app_crnn_ctc.py            # Streamlit UI & Visual Inference
+├── model/
+│   ├── train_crnn.py          # CRNN+CTC Training Script
+│   ├── inference_crnn.py      # Single-image CLI inference
+│   ├── evaluation_script.py   # Standalone CER/WER/Exact-Match evaluation script
+│   └── best_crnn.pth          # Saved model weights
+├── data/
+│   ├── synthetic_words/       # Training images + labels.csv
+│   ├── test_synthetic_words/  # Test images + labels.csv
+│   └── nepali_words.txt       # Raw Nepali words source (for generating synthetic data to train)
+│   └── new_test_words.txt     # New unseen words for testing
+├── tools/                     # Data generation scripts
+├── font/                      # Ranjana display / image rendering fonts (.otf/.ttf)
+├── CharCNN/                   # Archived character-level model
+├── requirements.txt
 ├── .gitignore
-├── DATASET.md             # Dataset documentation
-└── README.md              # Overall documentation
-
+├── CharCNN_archieve.md        # Archived documentation for CharCNN
+└── README.md
 ```
 
-## 🎯 Usage
+### 🧠 How it Works
+---
+Lipi Snap maps Ranjana visual features to Devanagari Unicode. The Ranjana fonts replace Devanagari glyphs with Ranjana equivalents. The CRNN model predicts Devanagari Unicode indices directly from Ranjana visual features, and Greedy CTC Decoding collapses the output into a final Devanagari string.
 
-### Training
-To train the model from scratch on the merged dataset:
-```bash
-python model/train.py
-```
-*Note: The script will automatically save the best performing model to `model/best_char_cnn.pth`.*
+### 📊 Dataset
+---
+- **Training**: ~245,000 synthetic images rendered in 2 Ranjana fonts with 90:10 for train-validation split - (augmentation applied dynamically during training).
+- **Test**: ~6,500 completely unseen test words (including both font styles).
+- **Vocabulary**: 69 Devanagari characters (`ँ ं ः अ आ … ् ० … ९`) + 1 `<blank>` token for CTC.
 
-### Web Interface
-Run the Streamlit app to test the model interactively. You can upload any Ranjana character image, and the app will handle the binarisation and inversion automatically before feeding it to the model.
-```bash
-streamlit run app.py
-```
+*Word lists compiled from the [Brihat Sabdakosh](https://github.com/bikashpadhikari/nepali-brihat-sabdakosh-json) and [Nepal Bhasa](https://github.com/nepali-bhasa/nepali-spell/blob/master/data/vocabulary-corpus) datasets, heavily supplemented by Wikipedia scrapes, custom NLP pipelines, and manual curation.*
 
-### CLI Inference
-To run inference on a single image, execute:
-```bash
-python model/inference.py path/to/image.png
-```
-
-## 📊 Dataset
-Refer to [DATASET.md](DATASET.md) for details on how the datasets were sourced, merged, and structured.
-
-## Acknowledgments
-- **Ranjana Fonts** — NithyaRanjanaDU and Ranjana NLG fonts sourced via [Callijatra](https://www.facebook.com/callijatra/posts/883335911018659/).
-- **Bati & Dawadi's CNN Architecture** — [Ranjana Script Handwritten Character Recognition using CNN](https://www.researchgate.net/publication/374169328_Ranjana_Script_Handwritten_Character_Recognition_using_CNN)
+### 🔖 Acknowledgments
+---
+- Ranjana Fonts sourced via [Callijatra](https://www.facebook.com/callijatra/posts/883335911018659/).
+- Architecture inspired by [*"Nepal Script Text Recognition using CRNN CTC Architecture"*](https://aclanthology.org/2024.sigul-1.29.pdf).
