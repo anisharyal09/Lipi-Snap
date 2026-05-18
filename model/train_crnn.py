@@ -1,6 +1,6 @@
-"""
+""" - 2gpus, blah blah one
 Lipi Snap — CRNN+CTC Training Pipeline
-Word-level Ranjana Script Recognition
+Word-level Ranjana Script Recognition (2x GPU + 3x3 Arch + Exact Match Logging)
 """
 
 import os
@@ -27,16 +27,15 @@ torch.manual_seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
-# Allow unsupported MPS ops to fall back to CPU instead of crashing
 os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 # --- Configuration ---
 IMG_HEIGHT = 64
-IMG_WIDTH  = 512   # wider = better resolution for long words
-MAX_LR     = 3e-3  # peak LR for OneCycleLR warm-up scheduler
+IMG_WIDTH  = 512   
+MAX_LR     = 3e-3
 EPOCHS     = 99
-GRAD_CLIP  = 5.0   # gradient clipping threshold to prevent exploding gradients
+GRAD_CLIP  = 5.0   
 
 # --- Device ---
 if torch.cuda.is_available():
@@ -54,8 +53,8 @@ if os.path.exists('/kaggle/input'):
     MODEL_DIR   = Path("/kaggle/working")
     NUM_WORKERS = 4
     BATCH_SIZE  = 512
-    LABELS_CSV  = '/kaggle/input/datasets/anisharyal09/ranjana-ls/labels.csv'   # my_private_dataset uploaded in kaggle
-    IMAGES_DIR  = '/kaggle/input/datasets/anisharyal09/ranjana-ls/images/images'   # my_private_dataset uploaded in kaggle
+    LABELS_CSV  = '/kaggle/input/datasets/anisharyal09/ranjana-ls/labels.csv'
+    IMAGES_DIR  = '/kaggle/input/datasets/anisharyal09/ranjana-ls/images/images'
 
 elif 'google.colab' in sys.modules or os.path.exists('/content'):
     ENV         = "colab"
@@ -82,42 +81,30 @@ VOCAB_STR = "ँंःअआइईउऊऋएऐऒओऔकखगघङचछ�
 CHARS = sorted(list(set(VOCAB_STR)))
 
 class LabelConverter:
-    """Handles encoding text → indices and decoding indices → text."""
     def __init__(self, chars):
-        # Index 0 is always reserved for the CTC blank token
         self.chars = ["<blank>"] + chars
         self.char_to_idx = {c: i for i, c in enumerate(self.chars)}
         self.idx_to_char = {i: c for i, c in enumerate(self.chars)}
 
     def encode(self, text):
-        # Skip any character not in our vocabulary (e.g. rare symbols)
         return [self.char_to_idx[c] for c in text if c in self.char_to_idx]
 
     def decode(self, indices):
-        # Index 0 is blank — skip it during decode
         return "".join([self.idx_to_char[i] for i in indices if i != 0])
 
     def num_classes(self):
-        return len(self.chars)  # includes the blank token
+        return len(self.chars)
 
 converter = LabelConverter(CHARS)
 
 # --- Preprocessing ---
 def process_image_crnn(image_path):
-    """
-    Preprocessing pipeline (must match generate_word_images.py):
-      1. Grayscale → Otsu binarize
-      2. Smart invert → white text on black background
-      3. Height-lock resize (preserve aspect ratio)
-      4. Right-pad to IMG_WIDTH with black pixels
-    """
     try:
         img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if img is None: raise ValueError("Invalid image")
 
         _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # Smart invert: dominant colour = background
         if np.sum(binary == 255) > np.sum(binary == 0):
             binary = cv2.bitwise_not(binary)
 
@@ -129,9 +116,7 @@ def process_image_crnn(image_path):
         canvas[:, :new_w] = resized
 
         return Image.fromarray(canvas)
-
     except Exception:
-        # Return a blank black image so the batch doesn't crash
         return Image.new('L', (IMG_WIDTH, IMG_HEIGHT), 0)
 
 # --- Dataset ---
@@ -165,13 +150,6 @@ class RanjanaCRNNDataset(Dataset):
 
 
 def crnn_collate_fn(batch):
-    """
-    Custom collate for CTC — labels have variable lengths so we can't
-    stack them into a rectangle. Instead:
-      - Images  → stacked normally into [B, C, H, W]
-      - Labels  → flattened into one 1D tensor
-      - Lengths → per-sample label lengths, needed by CTCLoss
-    """
     images, labels = zip(*batch)
     images = torch.stack(images, 0)
     target_lengths = torch.tensor([len(l) for l in labels], dtype=torch.long)
@@ -180,74 +158,68 @@ def crnn_collate_fn(batch):
 
 # --- Model ---
 class CRNN(nn.Module):
-    """
-    CRNN Architecture:
-      CNN  → strips vertical spatial info, produces a width-sequence of features
-      LSTM → reads that sequence left+right, understands temporal context
-      Head → per-timestep class scores (raw logits, log_softmax applied in loss)
-    """
     def __init__(self, num_classes):
         super().__init__()
+        # Optimized 3x3 Architecture
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, 2, padding='same'), nn.ReLU(True),
-            nn.Conv2d(32, 32, 2, padding='same'), nn.ReLU(True),
-            nn.Conv2d(32, 64, 2, padding='same'), nn.ReLU(True),
+            nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(True),
             nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 64, 2, padding='same'), nn.ReLU(True),
-            nn.Conv2d(64, 128, 2, padding='same'), nn.ReLU(True),
+            nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(True),
             nn.MaxPool2d(2, 2),
         )
 
-        # Flatten 128-channel × 16-height feature columns into a 1D vector per timestep
         self.dense_pre_rnn = nn.Sequential(
             nn.Linear(128 * 16, 64), nn.ReLU(True), nn.Dropout(0.2)
         )
 
-        # 3-layer Bidirectional LSTM: reads the sequence in both directions
-        self.rnn1 = nn.LSTM(64,  256, bidirectional=True, batch_first=True)  # out: 512
-        self.rnn2 = nn.LSTM(512, 128, bidirectional=True, batch_first=True)  # out: 256
-        self.rnn3 = nn.LSTM(256, 128, bidirectional=True, batch_first=True)  # out: 256
+        self.rnn1 = nn.LSTM(64,  256, bidirectional=True, batch_first=True)
+        self.rnn2 = nn.LSTM(512, 128, bidirectional=True, batch_first=True)
+        self.rnn3 = nn.LSTM(256, 128, bidirectional=True, batch_first=True)
 
-        # Per-timestep classifier: maps each column to a class score
         self.classifier = nn.Sequential(
             nn.Linear(256, 128), nn.ReLU(True), nn.Dropout(0.2),
-            nn.Linear(128, num_classes)  # raw logits — log_softmax applied at loss time
+            nn.Linear(128, num_classes)
         )
 
     def forward(self, x):
-        # CNN: [B, 1, H, W] → [B, 128, 16, W//4]
         conv = self.cnn(x)
         b, c, h, w = conv.size()
 
-        # Reshape to sequence: [B, W, C*H] — each column becomes one timestep
         conv = conv.permute(0, 3, 1, 2).contiguous().view(b, w, c * h)
         feats  = self.dense_pre_rnn(conv)
         out, _ = self.rnn1(feats)
         out, _ = self.rnn2(out)
         out, _ = self.rnn3(out)
-        return self.classifier(out).permute(1, 0, 2).contiguous()
+        
+        # RETURN [B, T, C] so DataParallel gathers batches correctly on dim 0
+        return self.classifier(out)
 
 # --- Loss + Decode ---
 def compute_ctc_loss(criterion, preds, targets, target_lengths):
+    # preds is [B, T, C]. Permute to [T, B, C] for CTCLoss computation
+    preds = preds.permute(1, 0, 2)
     log_probs = torch.nn.functional.log_softmax(preds, dim=2)
     input_lengths = torch.full((preds.size(1),), preds.size(0), dtype=torch.long)
+    
     if DEVICE.type == 'mps':
-        # MPS fallback: CTC not yet natively supported on Apple Silicon GPU
         return criterion(
             log_probs.cpu(), targets.cpu(),
             input_lengths.cpu(), target_lengths.cpu()
         )
     return criterion(log_probs, targets, input_lengths, target_lengths)
 
-
 def greedy_decode(preds):
     _, idxs = preds.max(2)
-    idxs = idxs.transpose(1, 0).cpu()
+    idxs = idxs.cpu() 
+    
     results = []
     for seq in idxs:
         decoded, last = [], -1
         for i in seq.tolist():
-            if i != last and i != 0:  # skip blank (0) and repeated chars
+            if i != last and i != 0: 
                 decoded.append(i)
             last = i
         results.append(decoded)
@@ -255,20 +227,16 @@ def greedy_decode(preds):
 
 # --- Training Helpers ---
 class TransformSubset(Dataset):
-    """Wraps a Subset with a different transform (needed because random_split shares one dataset)."""
     def __init__(self, subset, transform):
         self.subset = subset
         self.transform = transform
     def __len__(self): return len(self.subset)
-
     def __getitem__(self, idx):
         image, label = self.subset[idx]
         if self.transform:
             image = self.transform(image)
         return image, label
 
-
-# Pickle-friendly noise transform (lambdas crash with NUM_WORKERS > 0)
 class AddGaussianNoise:
     def __init__(self, std=0.05):
         self.std = std
@@ -277,137 +245,73 @@ class AddGaussianNoise:
 
 # --- Training ---
 def train():
-    # Dynamic Augmentation (train only)
     train_transform = transforms.Compose([
-        # 1. GEOMETRY: 90% chance to tilt/shift/shear, 10% stays flat
-        transforms.RandomApply([
-            transforms.RandomAffine(
-                degrees=2, translate=(0.01, 0.02), scale=(0.95, 1.05), shear=2
-            )
-        ], p=0.9),
-
-        # 2. CAMERA EFFECTS: 50% chance to blur
-        transforms.RandomApply([
-            transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))
-        ], p=0.5),
-
-        # 3. CONVERT
+        transforms.RandomApply([transforms.RandomAffine(degrees=2, translate=(0.01, 0.02), scale=(0.95, 1.05), shear=2)], p=0.9),
+        transforms.RandomApply([transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.5))], p=0.5),
         transforms.ToTensor(),
-
-        # 4. NOISE: 30% chance to add gaussian noise
-        transforms.RandomApply([
-            AddGaussianNoise(std=0.05)
-        ], p=0.3),
-
-        # 5. NORMALIZE
+        transforms.RandomApply([AddGaussianNoise(std=0.05)], p=0.3),
         transforms.Normalize((0.5,), (0.5,))
     ])
 
-    # Val: clean, no augmentation
     val_transform = transforms.Compose([
         transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))
     ])
 
-    # Load dataset WITHOUT transform (raw PIL images)
     dataset = RanjanaCRNNDataset(LABELS_CSV, IMAGES_DIR, transform=None)
-    if len(dataset) == 0:
-        print("❌ No samples found.")
-        return
+    if len(dataset) == 0: return
 
-    # 90/10 train/val split
     train_size = int(0.9 * len(dataset))
     val_size   = len(dataset) - train_size
     train_sub, val_sub = random_split(
-        dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(SEED)
+        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(SEED)
     )
 
     train_ds = TransformSubset(train_sub, train_transform)
     val_ds   = TransformSubset(val_sub,   val_transform)
     kwargs = {'collate_fn': crnn_collate_fn, 'num_workers': NUM_WORKERS, 'pin_memory': (DEVICE.type == 'cuda')}
+    
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True,  **kwargs)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE, shuffle=False, **kwargs)
 
-    # --- Model ---
-    model = CRNN(converter.num_classes()).to(DEVICE)
+    # --- Multi-GPU Support ---
+    model = CRNN(converter.num_classes())
+    if torch.cuda.device_count() > 1:
+        print(f"🔥 Found {torch.cuda.device_count()} GPUs! Using DataParallel.")
+        model = nn.DataParallel(model)
+    model = model.to(DEVICE)
 
-    # CTCLoss: blank=0 matches LabelConverter; zero_infinity prevents early NaN crashes
     criterion = nn.CTCLoss(blank=0, reduction='mean', zero_infinity=True)
-
-    # AdamW: proper weight decay to fight overfitting
     optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
 
-    # OneCycleLR: slow warm-up → peak → gentle cool-down (must step every batch)
     scheduler = optim.lr_scheduler.OneCycleLR(
-        optimizer,
-        max_lr          = MAX_LR,
-        steps_per_epoch = len(train_loader),
-        epochs          = EPOCHS,
+        optimizer, max_lr=MAX_LR, steps_per_epoch=len(train_loader), epochs=EPOCHS,
     )
 
     scaler = torch.amp.GradScaler('cuda') if USE_AMP else None
 
-    # --- Robust Checkpoint Loader ---
-    # Search multiple potential paths (local, Kaggle inputs, Colab inputs, etc.)
+    # Resume from best checkpoint
     start_epoch, best_loss = 1, float('inf')
-    
-    candidate_paths = [
-        BEST_MODEL_PATH,
-        MODEL_DIR / "best_crnn6.pth",
-        Path("best_crnn.pth"),
-        Path("best_crnn6.pth")
-    ]
-    
-    # Add Kaggle/Colab input directories as fallback search locations
-    try:
-        csv_parent = Path(LABELS_CSV).parent
-        candidate_paths.append(csv_parent / "best_crnn.pth")
-        candidate_paths.append(csv_parent / "best_crnn6.pth")
-        # Recursively search the input dataset parent for any checkpoint matching best_crnn*.pth
-        if csv_parent.exists():
-            for pth in csv_parent.rglob("best_crnn*.pth"):
-                candidate_paths.append(pth)
-    except Exception:
-        pass
-
-    # Filter out duplicates while preserving order
-    seen_paths = set()
-    unique_candidates = []
-    for p in candidate_paths:
+    if BEST_MODEL_PATH.exists():
         try:
-            p_abs = p.resolve()
-            if p_abs not in seen_paths:
-                seen_paths.add(p_abs)
-                unique_candidates.append(p)
-        except Exception:
-            if p not in unique_candidates:
-                unique_candidates.append(p)
-
-    loaded = False
-    print("🔎 Searching for checkpoints to resume...")
-    for path in unique_candidates:
-        if path.exists():
-            print(f"  📂 Found checkpoint file: {path}")
-            try:
-                ckpt = torch.load(path, map_location=DEVICE, weights_only=False)
-                if 'model_state_dict' in ckpt:
-                    model.load_state_dict(ckpt['model_state_dict'])
-                    if 'optimizer_state_dict' in ckpt:
-                        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-                    if 'scheduler_state_dict' in ckpt:
-                        scheduler.load_state_dict(ckpt['scheduler_state_dict'])
-                    start_epoch = ckpt.get('epoch', 0) + 1
-                    best_loss   = ckpt.get('loss', float('inf'))
-                    print(f"🔄 Successfully resumed training from: {path} (Epoch {start_epoch - 1}, Val Loss: {best_loss:.4f})")
-                    loaded = True
-                    break
-                else:
-                    print(f"  ⚠️  {path} does not contain 'model_state_dict', skipping.")
-            except Exception as e:
-                print(f"  ⚠️  Could not load checkpoint from {path}: {e}")
-
-    if not loaded:
-        print("ℹ️  No valid checkpoint found or loaded. Starting training from scratch.")
+            ckpt = torch.load(BEST_MODEL_PATH, map_location=DEVICE, weights_only=False)
+            
+            # Handle DataParallel loading
+            state = ckpt['model_state_dict']
+            if isinstance(model, nn.DataParallel):
+                model.module.load_state_dict(state)
+            else:
+                model.load_state_dict(state)
+                
+            if 'optimizer_state_dict' in ckpt:
+                optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            if 'scheduler_state_dict' in ckpt:
+                scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+                
+            start_epoch = ckpt.get('epoch', 0) + 1
+            best_loss   = ckpt.get('loss', float('inf'))
+            print(f"🔄 Resumed from epoch {start_epoch - 1}")
+        except Exception as e:
+            print(f"⚠️  Could not resume checkpoint: {e}")
 
     print(f"🚀 Training on {DEVICE.type.upper()} | {len(train_ds)} train / {len(val_ds)} val")
 
@@ -426,16 +330,16 @@ def train():
                 with torch.amp.autocast('cuda'):
                     preds = model(imgs)
                     loss  = compute_ctc_loss(criterion, preds, targets, target_lengths)
+                
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
                 
-                scale = scaler.get_scale()
+                scale_before = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
                 
-                # Only step scheduler if the scaler didn't skip the optimizer step (NaN/Inf)
-                if scale <= scaler.get_scale():
+                if scale_before <= scaler.get_scale():
                     scheduler.step()
             else:
                 preds = model(imgs)
@@ -448,17 +352,18 @@ def train():
             running_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.4f}", lr=f"{scheduler.get_last_lr()[0]:.2e}")
 
-        # --- Validation ---
+        # --- Validation (Exact Match) ---
         val_loss, acc = validate(model, val_loader, criterion)
         avg_train_loss = running_loss / len(train_loader)
-        print(f"Epoch {epoch:>3} | Train {avg_train_loss:.4f} | Val {val_loss:.4f} | Acc {acc:.2f}%")
+        
+        print(f"Epoch {epoch:>3} | Train Loss {avg_train_loss:.4f} | Val Loss {val_loss:.4f} | Acc {acc:.2f}%")
 
-        # Save best checkpoint
         if val_loss < best_loss:
             best_loss = val_loss
+            raw_model = model.module if isinstance(model, nn.DataParallel) else model
             torch.save({
                 'epoch'                : epoch,
-                'model_state_dict'     : model.state_dict(),
+                'model_state_dict'     : raw_model.state_dict(),
                 'optimizer_state_dict' : optimizer.state_dict(),
                 'scheduler_state_dict' : scheduler.state_dict(),
                 'loss'                 : val_loss,
@@ -481,7 +386,6 @@ def validate(model, loader, criterion):
         loss     = compute_ctc_loss(criterion, preds, targets, target_lengths)
         loss_sum += loss.item()
 
-        # Greedy decode predictions and compare with ground truth
         decoded = greedy_decode(preds)
         targets_cpu = targets.cpu()
         gt_seqs, offset = [], 0
@@ -490,11 +394,9 @@ def validate(model, loader, criterion):
             offset += l.item()
 
         for pred_seq, gt_seq in zip(decoded, gt_seqs):
-            if pred_seq == gt_seq:
-                correct += 1
+            if pred_seq == gt_seq: correct += 1
             total += 1
 
-        # Print epoch learning overview (first batch only)
         if i == 0:
             print("\n" + "="*45)
             print("🧐 EPOCH LEARNINGS & SAMPLES")
@@ -509,7 +411,6 @@ def validate(model, loader, criterion):
             print("="*45 + "\n")
 
     return loss_sum / len(loader), 100.0 * correct / total
-
 
 if __name__ == "__main__":
     train()

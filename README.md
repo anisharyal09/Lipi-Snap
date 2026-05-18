@@ -17,8 +17,9 @@
 ### ✨ Features
 ---
 - **Word-level recognition** — Predicts entire Nepali words in one shot; no segmentation required.
-- **CRNN + CTC architecture** — Standard pipeline (CNN + BiLSTM + CTC Loss) - inspired by [*"Nepal Script Text Recognition using CRNN CTC Architecture"*](https://aclanthology.org/2024.sigul-1.29.pdf) paper.
-- **Dynamic Data Augmentation** — Instead of storing bloated augmented datasets, the model applies random affine transforms, blurs, and noise *on-the-fly* during training for superior faster generalization.
+- **Optimized 3x3 CNN Architecture** — Upgraded convolutional kernels to 3x3 with 1px padding (from 2x2 with 'same' padding). This adjustment raised the total parameters from **1,947,078** to **2,024,038** parameters.
+- **Multi-GPU Parallel Processing** — Integrated PyTorch `nn.DataParallel` to train on 2x GPUs in parallel for faster training & inference.
+- **Dynamic Data Augmentation** — Instead of storing pre-augmented datasets, the model applies random affine transforms, blurs, and noise *on-the-fly* during training for superior faster generalization.
 - **Cross-Platform Env Detection** — Auto-detects and optimizes settings for Kaggle, Google Colab, and local Mac (MPS) environments.
 - **Neo-Minimal Streamlit UI** — A beautiful, dark-themed, glassmorphic UI built for real-time word recognition, featuring:
   - Real-time vision pipeline preview (Raw vs. Processed Input)
@@ -29,8 +30,11 @@
 ### 📈 Performance & Metrics
 ---
 - **Vocabulary**: 69 characters (Devanagari vowels, consonants, marks, and digits)
-- **Validation Accuracy**: **99.40%** (achieved dynamically at Epoch 16)
-- **Test Accuracy**: **92.48%** (on unique unseen synthetic test words)
+- **Model Parameters**: **2,024,038** (increased from **1,947,078** after upgrading the CNN to 3x3 kernels and 1px padding)
+- **Validation Accuracy**: **99.80%** (achieved dynamically at Epoch 75 of 99)
+- **Test Accuracy** *(word)*: **98.14%** (on unique unseen synthetic test words)
+- **Test Accuracy** *(char)*: **99.69%** (on unique unseen synthetic test words)
+
 
 #### 📊 Final Evaluation Metrics 
 *(via `evaluation_script.py`)*
@@ -40,15 +44,15 @@ Calculated using the `jiwer` package (where Exact Match Accuracy = 100% - WER).
 
 **1. Synthetic Train/Val (Dynamic Split Data)**
 *Tested on the combined 241,366 samples (both train and val sets included).*
-- **Word Error Rate (WER)**: 0.48%
-- **Exact Match Accuracy**: **99.52%**
-- **Character Error Rate (CER)**: 0.10%
+- **Word Error Rate (WER)**: 0.20%
+- **Character Error Rate (CER)**: 0.05%
+- **Exact Match Accuracy**: **99.80%**
 
 **2. Unseen Test Synthetic Words**
-*Tested on ~6.5k unique unseen words (including both font styles).*
-- **Word Error Rate (WER)**: 7.48%
-- **Exact Match Accuracy**: **92.52%**
-- **Character Error Rate (CER)**: 1.24%
+*Tested on 6,468 unique unseen words (including both font styles).*
+- **Word Error Rate (WER)**: 1.86%
+- **Character Error Rate (CER)**: 0.31%
+- **Exact Match Accuracy**: **98.14%**
 
 
 ### 🚀 Quick Start
@@ -112,5 +116,5 @@ Lipi Snap maps Ranjana visual features to Devanagari Unicode. The Ranjana fonts 
 
 ### 🔖 Acknowledgments
 ---
-- Ranjana Fonts sourced via [Callijatra](https://www.facebook.com/callijatra/posts/883335911018659/).
-- Architecture inspired by [*"Nepal Script Text Recognition using CRNN CTC Architecture"*](https://aclanthology.org/2024.sigul-1.29.pdf).
+- Ranjana Fonts sourced via [Callijatra](https://www.facebook.com/callijatra/posts/883335911018659/)
+- CRNN + CTC architecture inspired by [*"Nepal Script Text Recognition using CRNN CTC Architecture"*](https://aclanthology.org/2024.sigul-1.29.pdf) paper.

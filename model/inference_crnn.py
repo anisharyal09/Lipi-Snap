@@ -68,38 +68,43 @@ def preprocess_image(image_path):
 
 # --- Model ---
 class CRNN(nn.Module):
-    def __init__(self, num_classes, h1=256, h2=128, h3=128, kernel_size=2):
+    def __init__(self, num_classes):
         super().__init__()
-        padding = 'same' if kernel_size == 2 else (kernel_size // 2)
+        # Optimized 3x3 Architecture
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size, padding=padding), nn.ReLU(True),
-            nn.Conv2d(32, 32, kernel_size, padding=padding), nn.ReLU(True),
-            nn.Conv2d(32, 64, kernel_size, padding=padding), nn.ReLU(True),
+            nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(True),
             nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 64, kernel_size, padding=padding), nn.ReLU(True),
-            nn.Conv2d(64, 128, kernel_size, padding=padding), nn.ReLU(True),
+            nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(True),
+            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(True),
             nn.MaxPool2d(2, 2),
         )
+
         self.dense_pre_rnn = nn.Sequential(
             nn.Linear(128 * 16, 64), nn.ReLU(True), nn.Dropout(0.2)
         )
-        self.rnn1 = nn.LSTM(64,     h1, bidirectional=True, batch_first=True)
-        self.rnn2 = nn.LSTM(h1 * 2, h2, bidirectional=True, batch_first=True)
-        self.rnn3 = nn.LSTM(h2 * 2, h3, bidirectional=True, batch_first=True)
+
+        self.rnn1 = nn.LSTM(64,  256, bidirectional=True, batch_first=True)
+        self.rnn2 = nn.LSTM(512, 128, bidirectional=True, batch_first=True)
+        self.rnn3 = nn.LSTM(256, 128, bidirectional=True, batch_first=True)
+
         self.classifier = nn.Sequential(
-            nn.Linear(h3 * 2, 128), nn.ReLU(True), nn.Dropout(0.2),
+            nn.Linear(256, 128), nn.ReLU(True), nn.Dropout(0.2),
             nn.Linear(128, num_classes)
         )
 
     def forward(self, x):
         conv = self.cnn(x)
         b, c, h, w = conv.size()
+
         conv = conv.permute(0, 3, 1, 2).contiguous().view(b, w, c * h)
         feats  = self.dense_pre_rnn(conv)
         out, _ = self.rnn1(feats)
         out, _ = self.rnn2(out)
         out, _ = self.rnn3(out)
-        return self.classifier(out).permute(1, 0, 2).contiguous()
+        
+        return self.classifier(out)
 
 # --- Load Model ---
 def load_model(model_path=None):
@@ -116,18 +121,14 @@ def load_model(model_path=None):
     sd   = ckpt['model_state_dict']
 
     # Auto-detect architecture from the saved weights
-    h1 = sd['rnn1.weight_ih_l0'].shape[0] // 4
-    h2 = sd['rnn2.weight_ih_l0'].shape[0] // 4
-    h3 = sd['rnn3.weight_ih_l0'].shape[0] // 4
     num_classes = sd['classifier.3.weight'].shape[0]
-    kernel_size = sd['cnn.0.weight'].shape[2]  # Auto-detect convolution kernel size
 
     # Use vocabulary stored in checkpoint (preferred) or fall back to default
     chars = ckpt.get('chars', CHARS)
     converter = LabelConverter(chars)
 
     # Rebuild the model with the correct sizes
-    model = CRNN(num_classes, h1, h2, h3, kernel_size=kernel_size).to(DEVICE)
+    model = CRNN(num_classes).to(DEVICE)
     model.load_state_dict(sd)
     model.eval()
     return model, converter
@@ -144,7 +145,7 @@ def predict(image_path, model, converter):
 
     preds = model(img_tensor)
     _, preds_idx = preds.max(2)
-    preds_idx = preds_idx.squeeze(1).tolist()
+    preds_idx = preds_idx.squeeze(0).tolist()
 
     # Greedy CTC decode: collapse repeated chars, remove blanks
     decoded, last = [], -1
